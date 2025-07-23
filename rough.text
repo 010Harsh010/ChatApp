@@ -1,0 +1,971 @@
+import React, { useEffect, useRef, useContext, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { FaAngleLeft } from "react-icons/fa6";
+import { BsPeopleFill } from "react-icons/bs";
+import { FaRecordVinyl } from "react-icons/fa6";
+import { MdAddBox } from "react-icons/md";
+import { BiChat } from "react-icons/bi";
+import VideoBox from "./VideoBox";
+import { SocketContext } from "../context/SocketContext";
+import { useSelector } from "react-redux";
+
+const CallBox = (props) => {
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const peerConnectionRef = useRef(null);
+  const [localStream, setLocalStream] = useState(null);
+
+  const { socket } = useContext(SocketContext);
+  const roomId = useSelector((state) => state.friend.roomId);
+  const config = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  };
+
+  const [showChat, setShowChat] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [showUsers, setshowUsers] = useState(false);
+  const [addUsers, setaddUser] = useState(false);
+
+  // extra
+  useEffect(() => {
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkScreenSize();
+    window.addEventListener("resize", checkScreenSize);
+    return () => window.removeEventListener("resize", checkScreenSize);
+  }, []);
+
+  // creating room
+  useEffect(() => {
+    startStream();
+    return () => {
+      if (peerConnectionRef.current) peerConnectionRef.current.close();
+    };
+  }, []);
+
+  // create Stream
+  const startStream = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    setLocalStream(stream);
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream;
+    }
+
+    socket.emit("join-room", roomId);
+
+    socket.on("ready", async () => {
+      console.log("start connection");
+
+      createPeerConnection();
+      stream.getTracks().forEach((track) => {
+        peerConnectionRef.current.addTrack(track, stream);
+      });
+
+      const offer = await peerConnectionRef.current.createOffer();
+      await peerConnectionRef.current.setLocalDescription(offer);
+      socket.emit("offer", offer, roomId);
+    });
+
+    socket.on("offer", async (offer) => {
+      console.log("offer recived");
+
+      createPeerConnection();
+      stream.getTracks().forEach((track) => {
+        peerConnectionRef.current.addTrack(track, stream);
+      });
+
+      await peerConnectionRef.current.setRemoteDescription(offer);
+      const answer = await peerConnectionRef.current.createAnswer();
+      await peerConnectionRef.current.setLocalDescription(answer);
+      socket.emit("answer", answer, roomId);
+    });
+
+    socket.on("answer", async (answer) => {
+      console.log("recived answer");
+      await peerConnectionRef.current.setRemoteDescription(
+        new RTCSessionDescription(answer)
+      );
+      peerConnectionRef.current.onconnectionstatechange = () => {
+        console.log("Connection state:", peerConnectionRef.current.connectionState);
+      };
+    });
+
+    socket.on("ice-candidate", async (candidate) => {
+      try {
+        await peerConnectionRef.current.addIceCandidate(candidate);
+        console.log("✅ ICE candidate added");
+      } catch (e) {
+        console.error("❌ Error adding ICE candidate", e);
+      }
+    });
+  };
+
+  // create PeerConnection
+  const createPeerConnection = () => {
+    if (peerConnectionRef.current) return;
+
+    peerConnectionRef.current = new RTCPeerConnection(config);
+
+    peerConnectionRef.current.onicecandidate = (event) => {
+      if (event.candidate) {
+        console.log("send ice-candidtae");
+        socket.emit("ice-candidate", event.candidate, roomId);
+      }
+    };
+
+    peerConnectionRef.current.ontrack = (event) => {
+      // alert("hi")
+      const [remoteStream] = event.streams;
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream;
+      }
+    };
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        duration: 0.3,
+        ease: "easeOut",
+      },
+    },
+  };
+
+  const headerVariants = {
+    hidden: { y: -20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: {
+        delay: 0.1,
+        duration: 0.3,
+        ease: "easeOut",
+      },
+    },
+  };
+
+  const controlsVariants = {
+    hidden: { y: 20, opacity: 0 },
+    visible: {
+      y: 0,
+      opacity: 1,
+      transition: {
+        delay: 0.2,
+        duration: 0.3,
+        ease: "easeOut",
+      },
+    },
+  };
+
+  const videoVariants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        delay: 0.3,
+        duration: 0.4,
+        ease: "easeOut",
+      },
+    },
+  };
+
+  const chatVariants = {
+    hidden: { x: "100%", opacity: 0 },
+    visible: {
+      x: 0,
+      opacity: 1,
+      transition: {
+        type: "spring",
+        stiffness: 300,
+        damping: 30,
+      },
+    },
+    exit: {
+      x: "100%",
+      opacity: 0,
+      transition: {
+        duration: 0.2,
+        ease: "easeIn",
+      },
+    },
+  };
+
+  const iconHoverVariants = {
+    hover: {
+      scale: 1.1,
+      transition: {
+        type: "spring",
+        stiffness: 400,
+        damping: 10,
+      },
+    },
+  };
+
+  const pulseVariants = {
+    pulse: {
+      scale: [1, 1.1, 1],
+      transition: {
+        duration: 1.5,
+        repeat: Infinity,
+        ease: "easeInOut",
+      },
+    },
+  };
+
+  return (
+    <motion.div
+      className="h-full w-full bg-[#04090f] flex flex-row relative overflow-hidden"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      {/* Main Video Area */}
+      <motion.div
+        className={`h-full transition-all duration-300 mr-1 ${
+          isMobile
+            ? showChat
+              ? "w-0 overflow-hidden"
+              : "w-full"
+            : showChat
+            ? "w-[70%]"
+            : "w-full"
+        }`}
+        layout
+      >
+        {/* Header */}
+        <motion.div
+          className="h-[10%] w-full flex flex-row justify-between items-center border-b-2 border-white px-2 md:px-0"
+          variants={headerVariants}
+        >
+          <div
+            onClick={() => props?.setvideocall(true)}
+            className="h-full w-[10%] md:w-[10%] flex justify-center items-center"
+          >
+            <motion.div
+              className="h-[40%] w-[40%] md:h-[40%] md:w-[40%] rounded-md bg-[#354657] flex justify-center items-center cursor-pointer"
+              whileHover="hover"
+              variants={iconHoverVariants}
+            >
+              <FaAngleLeft className="text-white" size={isMobile ? 12 : 15} />
+            </motion.div>
+          </div>
+
+          <div className="h-full w-[90%] flex justify-start items-center overflow-hidden">
+            <motion.h1
+              className="text-white text-sm md:text-base lg:text-lg truncate"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.4, duration: 0.3 }}
+            >
+              Design Critique - Nicklfox Website
+            </motion.h1>
+
+            <motion.div
+              className="bg-[#354657] cursor-pointer ml-2 md:ml-5 rounded-md gap-1 md:gap-2 h-[50%] w-auto px-2 md:w-[13%] flex flex-row justify-center items-center"
+              whileHover={{ scale: 1.05 }}
+              onClick={() => {
+                setaddUser(false);
+                setShowChat(false);
+                setshowUsers(true);
+              }}
+              transition={{ type: "spring", stiffness: 400, damping: 10 }}
+            >
+              <BsPeopleFill className="text-white" size={isMobile ? 12 : 16} />
+              <h2 className="text-white text-xs md:text-sm">15+</h2>
+            </motion.div>
+          </div>
+
+          {/* Mobile Chat Toggle */}
+          {isMobile && (
+            <motion.button
+              className="md:hidden p-2 text-white"
+              onClick={() => {
+                setaddUser(false);
+                setShowChat(true);
+                setshowUsers(false);
+              }}
+              whileHover="hover"
+              variants={iconHoverVariants}
+            >
+              <BiChat size={20} />
+            </motion.button>
+          )}
+        </motion.div>
+
+        {/* Controls */}
+        <motion.div
+          className="h-[8%] w-full flex flex-row justify-between items-center px-2 md:px-0"
+          variants={controlsVariants}
+        >
+          <div className="h-full font-medium flex flex-row text-gray-400 gap-1 md:gap-2 justify-start items-center">
+            <motion.div variants={pulseVariants} animate="pulse">
+              <FaRecordVinyl
+                className="ml-2 md:ml-3 text-red-500"
+                size={isMobile ? 16 : 20}
+              />
+            </motion.div>
+            <h2 className="text-xs md:text-sm">REC</h2>
+            <h2 className="text-xs md:text-sm">00:12:36</h2>
+          </div>
+
+          <motion.div
+            className="flex flex-row justify-center items-center gap-1 md:gap-2 mr-2 md:mr-3 text-gray-300 cursor-pointer"
+            whileHover={{ scale: 1.05 }}
+            transition={{ type: "spring", stiffness: 400, damping: 10 }}
+            onClick={() => {
+              setaddUser(true);
+              setShowChat(false);
+              setshowUsers(false);
+            }}
+          >
+            <MdAddBox size={isMobile ? 20 : 25} />
+            {!isMobile && <h2 className="text-[13px]">Add user to the call</h2>}
+          </motion.div>
+        </motion.div>
+
+        {/* Video Area */}
+        <motion.div
+          className="h-[70%] md:h-[70%] pl-1 md:pl-2 w-full"
+          variants={videoVariants}
+        >
+          <VideoBox
+            remoteVideoRef={remoteVideoRef}
+            localVideoRef={localVideoRef}
+          />
+        </motion.div>
+
+        {/* Bottom Controls Space */}
+        <motion.div
+          className="h-[12%] md:h-auto flex-1 w-full"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.5, duration: 0.3 }}
+        >
+          {/* Add your call controls here */}
+        </motion.div>
+      </motion.div>
+
+      {/* Chat Panel */}
+      <AnimatePresence>
+        {(isMobile ? showChat && showChat : showChat) && (
+          <motion.div
+            className={`h-full bg-[#000000] border-l border-gray-700 ${
+              isMobile ? "absolute top-0 right-0 w-full z-10" : "w-[30%]"
+            }`}
+            variants={chatVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            layout
+          >
+            {/* Chat Header */}
+            <motion.div
+              className="h-[10%] w-full flex items-center justify-between px-4 border-b border-gray-700"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+            >
+              <h3 className="text-white font-medium">Live Chat</h3>
+
+              <motion.button
+                onClick={() => {
+                  setaddUser(false);
+                  setShowChat(false);
+                  setshowUsers(false);
+                }}
+                className="text-gray-400 hover:text-white"
+                whileHover="hover"
+                variants={iconHoverVariants}
+              >
+                <FaAngleLeft size={18} />
+              </motion.button>
+            </motion.div>
+
+            {/* Chat Content */}
+            <motion.div
+              className="h-[90%] w-full flex flex-col p-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.3 }}
+            >
+              <div className="flex-1 text-gray-400 text-center flex items-center justify-center">
+                <p>Chat messages will appear here</p>
+              </div>
+
+              {/* Chat Input */}
+              <motion.div
+                className="mt-4"
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ delay: 0.3, duration: 0.3 }}
+              >
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  className="w-full px-3 py-2 bg-[#2a3441] text-white rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
+                />
+              </motion.div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* User List Panel  */}
+
+      <AnimatePresence>
+        {showUsers && (
+          <motion.div
+            className={`h-full bg-[#000000bb] border-l border-gray-700 ${
+              isMobile ? "absolute top-0 right-0 w-full z-10" : "w-[30%]"
+            }`}
+            variants={chatVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            layout
+          >
+            {/* User List Header */}
+            <motion.div
+              className="h-[10%] w-full flex items-center justify-between px-4 border-b bg-black border-gray-700"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+            >
+              <h3 className="text-white font-medium">Current Users</h3>
+              <motion.button
+                onClick={() => {
+                  setaddUser(false);
+                  setShowChat(false);
+                  setshowUsers(false);
+                }}
+                className="text-gray-400 hover:text-white"
+                whileHover="hover"
+                variants={iconHoverVariants}
+              >
+                <FaAngleLeft size={18} />
+              </motion.button>
+            </motion.div>
+
+            {/* User List Content */}
+            <motion.div
+              className="h-[90%] w-full flex flex-col p-4 overflow-y-auto"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.3 }}
+            >
+              <div className="flex-1 space-y-4">
+                <div className="text-gray-400 text-sm mb-4 text-center">
+                  Call Participants (15+)
+                </div>
+
+                {/* Additional Users */}
+                {[
+                  {
+                    name: "John Doe",
+                    email: "john.doe@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Jane Smith",
+                    email: "jane.smith@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Mike Johnson",
+                    email: "mike.j@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Sarah Wilson",
+                    email: "sarah.w@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                ].map((user, index) => (
+                  <motion.div
+                    key={user.email}
+                    className="w-full bg-[#2a3441] rounded-xl shadow-md p-4 flex items-center gap-4 hover:bg-[#354657] transition-all duration-300"
+                    whileHover={{ scale: 1.02, x: 5 }}
+                    whileTap={{ scale: 0.98 }}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4 + index * 0.1, duration: 0.3 }}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-lg border-2 border-gray-600">
+                      {user.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")}
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-lg font-semibold text-white">
+                        {user.name}
+                      </h2>
+                      <p className="text-sm text-gray-400">{user.email}</p>
+                    </div>
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  </motion.div>
+                ))}
+
+                {/* More Users Indicator */}
+                <motion.div
+                  className="w-full bg-[#2a3441] rounded-xl shadow-md p-4 flex items-center justify-center gap-2 text-gray-400 border-2 border-dashed border-gray-600"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8, duration: 0.3 }}
+                >
+                  <span className="text-sm">+10 more participants</span>
+                </motion.div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Call to Join User */}
+      <AnimatePresence>
+        {addUsers && (
+          <motion.div
+            className={`h-full bg-[#000000] border-l border-gray-700 ${
+              isMobile ? "absolute top-0 right-0 w-full z-10" : "w-[30%]"
+            }`}
+            variants={chatVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            layout
+          >
+            {/* User List Header */}
+            <motion.div
+              className="h-[10%] w-full flex items-center justify-between px-4 border-b border-gray-700"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+            >
+              <h3 className="text-white font-medium">Add User</h3>
+              <motion.button
+                onClick={() => {
+                  setaddUser(false);
+                  setShowChat(false);
+                  setshowUsers(false);
+                }}
+                className="text-gray-400 hover:text-white"
+                whileHover="hover"
+                variants={iconHoverVariants}
+              >
+                <FaAngleLeft size={18} />
+              </motion.button>
+            </motion.div>
+
+            {/* User List Content */}
+            <motion.div
+              className="h-[90%] w-full flex flex-col p-4 overflow-y-auto"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.3 }}
+            >
+              <div className="flex-1 space-y-4">
+                {/* Additional Users */}
+                {[
+                  {
+                    name: "John Doe",
+                    email: "john.doe@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Jane Smith",
+                    email: "jane.smith@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Mike Johnson",
+                    email: "mike.j@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                  {
+                    name: "Sarah Wilson",
+                    email: "sarah.w@example.com",
+                    avatar: "/api/placeholder/48/48",
+                  },
+                ].map((user, index) => (
+                  <motion.div
+                    key={user.email}
+                    className="w-full bg-[#2a3441] rounded-xl shadow-md p-4 flex items-center gap-4 hover:bg-[#354657] transition-all duration-300"
+                    whileHover={{ scale: 1.02, x: 5 }}
+                    whileTap={{ scale: 0.98 }}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4 + index * 0.1, duration: 0.3 }}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-lg border-2 border-gray-600">
+                      {user.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .join("")}
+                    </div>
+                    <div className="flex-1">
+                      <h2 className="text-lg font-semibold text-white">
+                        {user.name}
+                      </h2>
+                      <p className="text-sm text-gray-400">{user.email}</p>
+                    </div>
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  </motion.div>
+                ))}
+
+                {/* More Users Indicator */}
+                <motion.div
+                  className="w-full bg-[#2a3441] rounded-xl shadow-md p-4 flex items-center justify-center gap-2 text-gray-400 border-2 border-dashed border-gray-600"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8, duration: 0.3 }}
+                >
+                  <span className="text-sm">+10 more participants</span>
+                </motion.div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Desktop Chat Toggle */}
+      {!isMobile && !showChat && (
+        <motion.div
+          drag
+          dragConstraints={{
+            top: -window.innerHeight * 0.4,
+            left: -window.innerWidth * 0.6,
+            right: 0,
+            bottom: window.innerHeight * 0.4,
+          }}
+          dragElastic={0.1}
+          dragTransition={{ bounceStiffness: 300, bounceDamping: 20 }}
+          onDragStart={() => setIsDragging(true)}
+          onDragEnd={() => {
+            setTimeout(() => setIsDragging(false), 100);
+          }}
+          className="absolute top-1/2 right-4 transform -translate-y-1/2 z-20 cursor-grab active:cursor-grabbing"
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.5, duration: 0.3 }}
+        >
+          <motion.button
+            className="bg-[#354657] p-3 rounded-full text-white shadow-lg cursor-pointer select-none"
+            onClick={() => {
+              if (!isDragging) {
+                setShowChat(true);
+                setaddUser(false);
+                setshowUsers(false);
+              }
+            }}
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <BiChat size={20} />
+          </motion.button>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+};
+
+export default CallBox;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const socketIo = require("socket.io");
+const User = require("./model/User.model.js");
+const Message = require("./model/Message.model.js");
+const Room = require("./model/Room.model.js");
+const { redisClient } = require("./redisClient.js");
+let io;
+
+let rooms = {};
+
+function initilizeSocket(server) {
+  io = socketIo(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
+  });
+
+  io.on("connection", (socket) => {
+    console.log("Client Connected: ", socket.id);
+
+    async function mapUserSocket(userId, socketId) {
+      await redisClient.hSet(userId, "Id", socketId);
+      await redisClient.expire(userId, 3600);
+      await redisClient.set(socketId, userId, { EX: 3600 });
+    }
+    socket.on("join", async (data) => {
+      try {
+        const { id } = data;
+        await mapUserSocket(id, socket.id);
+        const user = await User.findById(id);
+        if (!user) {
+          console.error("User not found:", id);
+          return;
+        }
+        const connections = user.connections || [];
+        for (const conn of connections) {
+          try {
+            const friendId = conn.friend;
+            const friendSocketId = await redisClient.hGet(
+              friendId.toString(),
+              "Id"
+            );
+            if (friendSocketId) {
+              io.to(friendSocketId).emit("userconnected", { id });
+            }
+          } catch (error) {
+            console.error("Error emitting userconnected event:", error);
+          }
+        }
+      } catch (error) {
+        console.log("Error in join event:", error);
+      }
+    });
+
+    socket.on("checkOnlineBulk", async (friendIds) => {
+      try {
+        // console.log("Checking online status for bulk friend IDs:", friendI/ds);
+
+        if (friendIds.length === 0 || !Array.isArray(friendIds)) {
+          console.log("No friend IDs provided for bulk online status check.");
+          return;
+        }
+        const statusMap = {};
+        for (const id of friendIds) {
+          if (!id) {
+            // console.log("Invalid ID in friendIds array:", id);
+            continue;
+          }
+          statusMap[id] = await redisClient.hExists(id, "Id");
+        }
+        socket.emit("bulkOnlineStatus", statusMap);
+      } catch (error) {
+        console.log("Error in checkOnlineBulk:", error);
+      }
+    });
+
+    socket.on("typing", async (data) => {
+      if (io) {
+        if (await redisClient.hExists(data?.sender, "Id")) {
+          const senderSocketId = await redisClient.hGet(data?.sender, "Id");
+          io.to(senderSocketId).emit("usertyping", { roomE: data?.RoomId });
+        }
+      } else {
+        console.log("Socket.io not initialized.");
+      }
+    });
+
+    socket.on("send-message", async (messageObject) => {
+      let messageObjects;
+      if (messageObject?.metadata) {
+        messageObjects = await Message.create({
+          message: messageObject?.message,
+          type: messageObject?.type,
+          sender: messageObject?.sender,
+          receiver: messageObject?.receiver,
+          conversation: messageObject?.conversation,
+          status: "unseen",
+          metadata: messageObject?.metadata,
+        });
+      } else {
+        messageObjects = await Message.create({
+          message: messageObject?.message,
+          type: messageObject?.type,
+          sender: messageObject?.sender,
+          receiver: messageObject?.receiver,
+          conversation: messageObject?.conversation,
+          status: "unseen",
+        });
+      }
+
+      await messageObjects.save();
+
+      const room = await Room.findByIdAndUpdate(
+        {
+          _id: messageObjects?.conversation,
+        },
+        {
+          $push: {
+            message: messageObjects._id,
+          },
+        }
+      );
+
+      if (io) {
+        if (await redisClient.hExists(messageObject?.sender, "Id")) {
+          const senderSocketId = await redisClient.hGet(
+            messageObject.sender,
+            "Id"
+          );
+          io.to(senderSocketId).emit("receive-message", messageObjects);
+        }
+
+        if (await redisClient.hExists(messageObject?.receiver, "Id")) {
+          const receiverSocketId = await redisClient.hGet(
+            messageObject?.receiver,
+            "Id"
+          );
+          io.to(receiverSocketId).emit("receive-message", messageObjects);
+        }
+      } else {
+        console.log("Socket.io not initialized.");
+      }
+    });
+
+    socket.on("onceseen", (messageObject) => {
+      const updateSeenMessages = async () => {
+        try {
+          await Message.findByIdAndUpdate(
+            { _id: messageObject?._id },
+            { status: "seen" }
+          );
+          if (await redisClient.hExists(messageObject?.sender, "Id")) {
+            const reciver = await redisClient.hGet(messageObject?.sender, "Id");
+            io.to(reciver).emit("madeSeen");
+          } else {
+            console.log("Sender socket ID not found in Redis.");
+          }
+        } catch (error) {
+          console.error("Error updating once seen messages:", error);
+        }
+      };
+      updateSeenMessages();
+    });
+
+    socket.on("unseen", async (data) => {
+      try {
+        const { sender, RoomId } = data;
+        if (!sender && !RoomId) return;
+
+        const Chatroom = await Room.findById({ _id: RoomId });
+        if (!Chatroom) {
+          return;
+        }
+        const messages = Chatroom.message;
+        await Message.updateMany(
+          { _id: messages, sender: sender },
+          {
+            status: "seen",
+          }
+        );
+        if (await redisClient.hExists(sender, "Id")) {
+          const reciver = await redisClient.hGet(sender, "Id");
+          // console.log("Sender socket ID found in Redis:", reciver);
+          io.to(reciver).emit("madeSeen");
+        } else {
+          console.log("Sender socket ID not found in Redis.");
+        }
+      } catch (error) {
+        console.error("Error updating All seen messages:", error);
+      }
+    });
+
+    // WebRTC Socket's
+    socket.on("join-room",(roomId) => {
+      socket.join(roomId);
+      const clients = io.sockets.adapter.rooms.get(roomId);
+      if (clients.size > 1) {
+        console.log("find send" ,clients);
+        
+        socket.to(roomId).emit("ready");
+      }
+    });
+    socket.on("offer", (offer, room) => {
+      socket.to(room).emit("offer", offer);
+    });
+
+    socket.on("answer", (answer, room) => {
+      socket.to(room).emit("answer", answer);
+    });
+
+    socket.on("ice-candidate", (candidate, room) => {
+      socket.to(room).emit("ice-candidate", candidate);
+    });
+
+    socket.on("disconnect", () => {
+      const disconnectUser = async () => {
+        const socketId = socket.id;
+        console.log("User disconnected:", socketId);
+
+        try {
+          const userId = await redisClient.get(socketId);
+          if (!userId) {
+            // console.log("User ID not found for socket:", socketId);
+            return;
+          }
+
+          const user = await User.findByIdAndUpdate(
+            userId,
+            { lastSeen: Date.now() },
+            { new: true }
+          );
+          if (!user) {
+            // console.log("User not found:", userId);
+            return;
+          }
+
+          await redisClient.hDel(user._id.toString(), "Id");
+          // console.log("User disconnected from redis:", user._id);
+          await redisClient.del(socketId.toString());
+          // console.log("Socket ID deleted from redis:", socketId);
+
+          const connections = user.connections || [];
+          for (const conn of connections) {
+            try {
+              const friendId = conn.friend;
+              const friendSocketId = await redisClient.hGet(
+                friendId.toString(),
+                "Id"
+              );
+              // console.log("Friend Socket ID:", friendSocketId);
+              if (friendSocketId) {
+                io.to(friendSocketId).emit("userdisconnected", { id: userId });
+                // console.log("Emitted userdisconnected event to friend:", friendId);
+              }
+            } catch (error) {}
+          }
+        } catch (err) {
+          console.error("Error in disconnectUser:", err);
+        }
+      };
+
+      disconnectUser();
+    });
+  });
+}
+const sendMessageToSocketId = (socketId, messageObject) => {
+  // console.log(messageObject);
+  // console.log(socketId);
+  if (io) {
+    io.to(socketId).emit(messageObject.event, messageObject.data);
+  } else {
+    console.log("Socket.io not initialized.");
+  }
+};
+
+module.exports = { initilizeSocket, sendMessageToSocketId };
