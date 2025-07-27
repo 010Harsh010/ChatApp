@@ -1,6 +1,6 @@
 export default class user {
-  constructor() {
-    this.base = "http://localhost:4000/user";
+  constructor() { ;
+    this.base = `${import.meta.env.VITE_URL}/user`;
   }
   async login(data) {
     let res = await fetch(this.base + "/login", {

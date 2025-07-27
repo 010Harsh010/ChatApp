@@ -3,7 +3,7 @@ import React,{useEffect,createContext} from "react";
 import { useSelector } from "react-redux";
 
 export const SocketContext = createContext(null);
-const socket = io("http://localhost:4000");
+const socket = io(import.meta.env.VITE_URL);
 
 const SocketProvider = ({children}) => {
     useEffect(() => {
