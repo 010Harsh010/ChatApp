@@ -23,7 +23,7 @@ import Users from "../Server/user.js";
 import { motion, AnimatePresence } from "motion/react";
 import EmojiPicker from "emoji-picker-react";
 import File from "./Files.jsx";
-import Call from "./call.jsx";
+import Call from "./Call.jsx";
 import { MdVideocamOff } from "react-icons/md";
 
 const Chatbox = () => {
