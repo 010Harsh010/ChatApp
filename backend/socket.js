@@ -8,11 +8,18 @@ let io;
 let rooms = {};
 
 function initilizeSocket(server) {
-  io = socketIo(server, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"],
+  const corsOptions = {
+    origin: function (origin, cb) {
+      if (!origin || process.env.ALLOWED_ORIGINS.split(",").includes(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error("Not allowed by CORS"));
+      }
     },
+     methods: ["GET", "POST"],
+  };
+  io = socketIo(server, {
+    cors: corsOptions,
   });
 
   io.on("connection", (socket) => {
@@ -238,13 +245,13 @@ function initilizeSocket(server) {
       if (io) {
         if (await redisClient.hExists(String(reciver), "Id")) {
           console.log("get reciver");
-          
+
           const receiverSocketId = await redisClient.hGet(
             String(reciver),
             "Id"
           );
           console.log("sending reciver");
-          
+
           io.to(receiverSocketId).emit("receive-message", messageObject);
         }
 
@@ -255,7 +262,6 @@ function initilizeSocket(server) {
           );
           io.to(senderSocketId).emit("receive-message", messageObject);
         }
-        
       } else {
         console.log("Socket.io not initialized.");
       }
